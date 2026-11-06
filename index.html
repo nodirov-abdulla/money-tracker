@@ -114,6 +114,11 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--ink); outli
 .bal { flex: 1; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
 .bal small { display: block; color: var(--muted); font-size: 12px; font-weight: 500; }
 .bal strong { font-size: 22px; font-weight: 700; }
+.held { margin: 8px 2px 0; font-size: 13px; color: var(--muted); }
+.ratebox { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.ratebox label { font-size: 14px; color: var(--muted); white-space: nowrap; }
+.ratebox input { flex: 1; min-width: 0; font: inherit; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+.ratebox button { font: inherit; font-weight: 700; cursor: pointer; padding: 0 14px; min-height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
 .pos { color: var(--plus); }
 .neg { color: var(--minus); }
 
@@ -165,6 +170,13 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--ink); outli
 
   <section>
     <div class="balances" id="balances"></div>
+    <p class="held" id="held"></p>
+    <div class="ratebox">
+      <label for="rate">Rate: £1 = $</label>
+      <input id="rate" type="text" inputmode="decimal" placeholder="e.g. 1.30" aria-label="Dollars per pound">
+      <button type="button" id="liveRate">Live rate</button>
+    </div>
+    <p class="held" id="rateMsg"></p>
   </section>
 
   <section class="history" id="history" aria-label="History"></section>
@@ -189,6 +201,53 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--ink); outli
   function money(n, c) {
     return new Intl.NumberFormat('en-GB', { style: 'currency', currency: c }).format(n);
   }
+  // Exchange rate: dollars per £1. Live when online, kept for offline, or typed by hand.
+  var RKEY = 'money-tracker-rate-v1';
+  var rate = null, rateManual = false, rateNote = '';
+  try {
+    var rr = JSON.parse(localStorage.getItem(RKEY) || 'null');
+    if (rr && rr.rate > 0) { rate = rr.rate; rateManual = !!rr.manual; rateNote = rr.note || ''; }
+  } catch (e) {}
+  function saveRate() {
+    try { localStorage.setItem(RKEY, JSON.stringify({ rate: rate, manual: rateManual, note: rateNote })); } catch (e) {}
+  }
+  async function fetchRate() {
+    var sources = [
+      'https://api.frankfurter.dev/v1/latest?base=GBP&symbols=USD',
+      'https://open.er-api.com/v6/latest/GBP'
+    ];
+    for (var i = 0; i < sources.length; i++) {
+      try {
+        var res = await fetch(sources[i], { cache: 'no-store' });
+        var j = await res.json();
+        var v = j && j.rates && j.rates.USD;
+        if (v > 0) return v;
+      } catch (e) {}
+    }
+    return null;
+  }
+  function paintRate() {
+    $('rate').value = rate ? String(Math.round(rate * 10000) / 10000) : '';
+    $('rateMsg').textContent = rate
+      ? (rateNote || 'Saved rate')
+      : 'No rate yet. Connect to the internet or type a rate to see your combined balance.';
+  }
+  async function refreshRate(force) {
+    if (rateManual && !force) { paintRate(); return; }
+    $('rateMsg').textContent = 'Updating rate…';
+    var v = await fetchRate();
+    if (v) {
+      rate = v; rateManual = false;
+      rateNote = 'Live rate, ' + new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+      saveRate();
+    } else if (!rate) {
+      rateNote = '';
+    } else {
+      rateNote = (rateManual ? 'Your rate' : 'Saved rate') + ' (offline, could not update)';
+    }
+    paintRate(); render();
+  }
+
   function say(text, isErr) {
     var m = $('msg'); m.textContent = text || ''; m.className = isErr ? 'err' : '';
   }
@@ -199,15 +258,25 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--ink); outli
   }
 
   function render() {
-    // balances
+    // balances: each box shows the whole balance in its own currency
     var totals = { GBP: 0, USD: 0 };
     state.entries.forEach(function (e) { totals[e.cur] += e.sign * e.amt; });
+    var shown = { GBP: totals.GBP, USD: totals.USD };
+    if (rate) {
+      var inUsd = totals.USD + totals.GBP * rate;
+      shown = { USD: inUsd, GBP: inUsd / rate };
+    }
+    function signed(v, c) {
+      v = Math.round(v * 100) / 100;
+      return (v > 0 ? '+' : v < 0 ? '−' : '') + money(Math.abs(v), c);
+    }
     $('balances').innerHTML = ['GBP', 'USD'].map(function (c) {
-      var v = Math.round(totals[c] * 100) / 100;
+      var v = Math.round(shown[c] * 100) / 100;
       var cls = v > 0 ? 'pos' : v < 0 ? 'neg' : '';
-      var txt = (v > 0 ? '+' : v < 0 ? '−' : '') + money(Math.abs(v), c);
-      return '<div class="bal"><small>Balance ' + SYMBOL[c] + '</small><strong class="' + cls + '">' + txt + '</strong></div>';
+      return '<div class="bal"><small>Balance ' + SYMBOL[c] + '</small><strong class="' + cls + '">' + signed(v, c) + '</strong></div>';
     }).join('');
+    $('held').textContent = 'In hand: ' + signed(totals.GBP, 'GBP') + ' and ' + signed(totals.USD, 'USD') +
+      (rate ? '' : '. Add a rate to combine them.');
 
     // history grouped by day, newest first (by the time chosen on each entry)
     var list = state.entries.slice().sort(function (a, b) { return a.t < b.t ? 1 : a.t > b.t ? -1 : 0; });
@@ -275,9 +344,18 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--ink); outli
     busy = false; render();
   });
 
+  $('rate').addEventListener('change', function () {
+    var v = parseFloat(String($('rate').value).replace(',', '.'));
+    if (v > 0) { rate = v; rateManual = true; rateNote = 'Your rate'; saveRate(); }
+    paintRate(); render();
+  });
+  $('liveRate').addEventListener('click', function () { refreshRate(true); });
+
   $('when').value = nowLocal();
   paintControls();
+  paintRate();
   render();
+  refreshRate(false);
 })();
 
 if ('serviceWorker' in navigator) {
