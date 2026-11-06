@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Money Tracker</title>
+<meta name="theme-color" content="#11864a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Money">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<style>
+:root {
+  /* Layout idea: one narrow column. Entry form on top, running balance, then a day-grouped history tinted green for money in and red for money out. */
+  --bg: #f1f4f6;
+  --card: #ffffff;
+  --ink: #12181d;
+  --muted: #65717c;
+  --line: #dbe1e6;
+  --plus: #11864a;
+  --plus-bg: #e1f4e9;
+  --minus: #c72f2b;
+  --minus-bg: #fce6e5;
+  --on-color: #ffffff;
+  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1215;
+    --card: #161b1f;
+    --ink: #eef1f3;
+    --muted: #93a0ab;
+    --line: #28313a;
+    --plus: #4fd18b;
+    --plus-bg: #13301f;
+    --minus: #ff7b74;
+    --minus-bg: #3a1917;
+    --on-color: #0e1215;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1215;
+  --card: #161b1f;
+  --ink: #eef1f3;
+  --muted: #93a0ab;
+  --line: #28313a;
+  --plus: #4fd18b;
+  --plus-bg: #13301f;
+  --minus: #ff7b74;
+  --minus-bg: #3a1917;
+  --on-color: #0e1215;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+main { max-width: 460px; margin: 0 auto; padding: 24px 16px 56px; display: flex; flex-direction: column; gap: 20px; }
+h1 { font-size: 22px; margin: 0; font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 13px; margin: 0; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.row { display: flex; gap: 10px; align-items: stretch; }
+
+#amount {
+  flex: 1; min-width: 0; width: 100%;
+  font: inherit; font-size: 28px; font-weight: 700;
+  padding: 8px 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+}
+#amount::placeholder { color: var(--muted); font-weight: 400; }
+#when {
+  width: 100%; font: inherit; font-size: 16px; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+}
+label.lab { font-size: 13px; color: var(--muted); font-weight: 500; display: block; margin-bottom: 6px; }
+
+.seg { display: flex; gap: 6px; }
+.seg button {
+  font: inherit; font-weight: 700; cursor: pointer; color: var(--ink);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+  padding: 0 16px; min-height: 48px;
+}
+.seg.cur button { min-width: 64px; }
+.seg.sign { gap: 10px; }
+.seg.sign button { flex: 1; font-size: 17px; }
+.seg.cur button[aria-pressed="true"] { background: var(--ink); color: var(--card); border-color: var(--ink); }
+.seg.sign button[data-sign="1"][aria-pressed="true"] { background: var(--plus-bg); color: var(--plus); border-color: var(--plus); }
+.seg.sign button[data-sign="-1"][aria-pressed="true"] { background: var(--minus-bg); color: var(--minus); border-color: var(--minus); }
+
+#submit {
+  font: inherit; font-size: 17px; font-weight: 700; cursor: pointer;
+  min-height: 52px; border: 0; border-radius: 12px;
+  color: var(--on-color); background: var(--plus);
+}
+#submit.minus { background: var(--minus); }
+#submit:disabled { opacity: 0.6; cursor: progress; }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+#msg { min-height: 20px; margin: -4px 0 0; font-size: 14px; color: var(--muted); }
+#msg.err { color: var(--minus); }
+
+.balances { display: flex; gap: 10px; }
+.bal { flex: 1; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
+.bal small { display: block; color: var(--muted); font-size: 12px; font-weight: 500; }
+.bal strong { font-size: 22px; font-weight: 700; }
+.pos { color: var(--plus); }
+.neg { color: var(--minus); }
+
+.history { display: flex; flex-direction: column; gap: 8px; }
+.day { margin-top: 10px; }
+.item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 8px 12px 14px; border-radius: 12px; border-left: 6px solid;
+}
+.item.in { background: var(--plus-bg); border-color: var(--plus); }
+.item.out { background: var(--minus-bg); border-color: var(--minus); }
+.item .amt { font-size: 20px; font-weight: 700; flex: 1; }
+.item.in .amt { color: var(--plus); }
+.item.out .amt { color: var(--minus); }
+.item .time { color: var(--muted); font-size: 14px; }
+.item .del {
+  font: inherit; font-size: 20px; line-height: 1; cursor: pointer; color: var(--muted);
+  background: transparent; border: 0; border-radius: 8px; width: 36px; height: 36px;
+}
+.empty { color: var(--muted); padding: 16px 4px; }
+@media (prefers-reduced-motion: no-preference) {
+  #submit, .seg button { transition: background 0.15s, color 0.15s, border-color 0.15s; }
+}
+</style>
+</head>
+<body>
+<main>
+  <h1>Money tracker</h1>
+
+  <form class="card" id="form" autocomplete="off">
+    <div class="row">
+      <input id="amount" type="text" inputmode="decimal" placeholder="0.00" aria-label="Amount">
+      <div class="seg cur" role="group" aria-label="Currency">
+        <button type="button" data-cur="GBP" aria-pressed="true">£</button>
+        <button type="button" data-cur="USD" aria-pressed="false">$</button>
+      </div>
+    </div>
+    <div class="seg sign" role="group" aria-label="Money in or out">
+      <button type="button" data-sign="1" aria-pressed="true">+ In</button>
+      <button type="button" data-sign="-1" aria-pressed="false">− Out</button>
+    </div>
+    <div>
+      <label class="lab" for="when">When</label>
+      <input id="when" type="datetime-local">
+    </div>
+    <button id="submit" type="submit">Submit</button>
+    <p id="msg" role="status"></p>
+  </form>
+
+  <section>
+    <div class="balances" id="balances"></div>
+  </section>
+
+  <section class="history" id="history" aria-label="History"></section>
+</main>
+
+<script id="state" type="application/json">{"entries":[]}</script>
+<script>
+(function () {
+  var KEY = 'money-tracker-v1';
+  var state = { entries: [] };
+  try { var raw = localStorage.getItem(KEY); if (raw) state = JSON.parse(raw); } catch (e) {}
+
+  var cur = 'GBP', sign = 1, busy = false;
+  var $ = function (id) { return document.getElementById(id); };
+  var SYMBOL = { GBP: '£', USD: '$' };
+
+  function nowLocal() {
+    var d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16);
+  }
+  function money(n, c) {
+    return new Intl.NumberFormat('en-GB', { style: 'currency', currency: c }).format(n);
+  }
+  function say(text, isErr) {
+    var m = $('msg'); m.textContent = text || ''; m.className = isErr ? 'err' : '';
+  }
+
+  async function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(state)); }
+    catch (e) { throw new Error('Your browser would not save this. Turn off private browsing and try again.'); }
+  }
+
+  function render() {
+    // balances
+    var totals = { GBP: 0, USD: 0 };
+    state.entries.forEach(function (e) { totals[e.cur] += e.sign * e.amt; });
+    $('balances').innerHTML = ['GBP', 'USD'].map(function (c) {
+      var v = Math.round(totals[c] * 100) / 100;
+      var cls = v > 0 ? 'pos' : v < 0 ? 'neg' : '';
+      var txt = (v > 0 ? '+' : v < 0 ? '−' : '') + money(Math.abs(v), c);
+      return '<div class="bal"><small>Balance ' + SYMBOL[c] + '</small><strong class="' + cls + '">' + txt + '</strong></div>';
+    }).join('');
+
+    // history grouped by day, newest first (by the time chosen on each entry)
+    var list = state.entries.slice().sort(function (a, b) { return a.t < b.t ? 1 : a.t > b.t ? -1 : 0; });
+    var host = $('history');
+    if (!list.length) { host.innerHTML = '<p class="empty">Nothing yet. Add your first entry above.</p>'; return; }
+    var html = '', lastDay = '';
+    list.forEach(function (e) {
+      var d = new Date(e.t);
+      var day = d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+      if (day !== lastDay) { html += '<h2 class="day">' + day + '</h2>'; lastDay = day; }
+      var time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+      var inn = e.sign === 1;
+      html += '<div class="item ' + (inn ? 'in' : 'out') + '">' +
+        '<span class="amt">' + (inn ? '+' : '−') + money(e.amt, e.cur) + '</span>' +
+        '<span class="time">' + time + '</span>' +
+        '<button class="del" type="button" data-id="' + e.id + '" aria-label="Delete this entry">×</button></div>';
+    });
+    host.innerHTML = html;
+  }
+
+  function paintControls() {
+    document.querySelectorAll('[data-cur]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.cur === cur)); });
+    document.querySelectorAll('[data-sign]').forEach(function (b) { b.setAttribute('aria-pressed', String(Number(b.dataset.sign) === sign)); });
+    $('submit').className = sign === 1 ? '' : 'minus';
+  }
+
+  document.querySelectorAll('[data-cur]').forEach(function (b) {
+    b.addEventListener('click', function () { cur = b.dataset.cur; paintControls(); });
+  });
+  document.querySelectorAll('[data-sign]').forEach(function (b) {
+    b.addEventListener('click', function () { sign = Number(b.dataset.sign); paintControls(); });
+  });
+
+  $('form').addEventListener('submit', async function (ev) {
+    ev.preventDefault();
+    if (busy) return;
+    var amt = parseFloat(String($('amount').value).replace(',', '.'));
+    if (!(amt > 0)) { say('Type an amount greater than 0.', true); return; }
+    var entry = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      amt: Math.round(amt * 100) / 100, cur: cur, sign: sign,
+      t: $('when').value || nowLocal()
+    };
+    busy = true; $('submit').disabled = true; say('Saving…');
+    state.entries.push(entry);
+    try { await save(); }
+    catch (e) {
+      state.entries = state.entries.filter(function (x) { return x.id !== entry.id; });
+      say(e && e.message ? e.message : 'Could not save. Try again.', true);
+      busy = false; $('submit').disabled = false; return;
+    }
+    
+    $('amount').value = ''; say('Saved.'); render();
+    busy = false; $('submit').disabled = false;
+  });
+
+  $('history').addEventListener('click', async function (ev) {
+    var b = ev.target.closest('.del');
+    if (!b || busy) return;
+    var before = state.entries.slice();
+    state.entries = state.entries.filter(function (x) { return x.id !== b.dataset.id; });
+    busy = true;
+    try { await save(); }
+    catch (e) { state.entries = before; say(e && e.message ? e.message : 'Could not delete. Try again.', true); }
+    busy = false; render();
+  });
+
+  $('when').value = nowLocal();
+  paintControls();
+  render();
+})();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+}
+</script>
+</body>
+</html>
